@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+
+<meta charset="utf-8">
+
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+>
+
+<title>Smart Resume Screener</title>
+
+<style>
+
+body {
+    font-family: Arial, sans-serif;
+    max-width: 1000px;
+    margin: 40px auto;
+    padding: 0 20px;
+    background: #f5f7fb;
+    color: #172033;
+}
+
+.card {
+    background: white;
+    padding: 24px;
+    border-radius: 16px;
+    margin-bottom: 20px;
+    box-shadow: 0 5px 20px #0001;
+}
+
+h1 {
+    margin-bottom: 5px;
+}
+
+.muted {
+    color: #687386;
+}
+
+textarea {
+    width: 100%;
+    min-height: 220px;
+    padding: 12px;
+    border: 1px solid #ccd3df;
+    border-radius: 10px;
+    box-sizing: border-box;
+    font-size: 15px;
+    resize: vertical;
+}
+
+input[type="file"] {
+    margin: 12px 0;
+}
+
+button {
+    background: #172033;
+    color: white;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 9px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+button:hover {
+    opacity: 0.9;
+}
+
+button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.score {
+    font-size: 48px;
+    font-weight: bold;
+}
+
+.pill {
+    display: inline-block;
+    background: #edf1f7;
+    padding: 6px 10px;
+    border-radius: 20px;
+    margin: 4px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+td,
+th {
+    text-align: left;
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.error {
+    color: #b42318;
+    background: #fef3f2;
+    padding: 12px;
+    border-radius: 8px;
+}
+
+.success {
+    color: #027a48;
+    background: #ecfdf3;
+    padding: 12px;
+    border-radius: 8px;
+}
+
+.empty {
+    color: #687386;
+    padding: 10px 0;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="card">
+
+    <h1>Smart Resume Screener</h1>
+
+    <p class="muted">
+        Upload a resume and compare it against a job description.
+    </p>
+
+    <form id="form">
+
+        <input
+            type="file"
+            id="resume"
+            accept=".pdf,.txt"
+            required
+        >
+
+        <textarea
+            id="jd"
+            placeholder="Paste the job description here..."
+            required
+        ></textarea>
+
+        <br><br>
+
+        <button
+            type="submit"
+            id="screenButton"
+        >
+            Screen Resume
+        </button>
+
+    </form>
+
+</div>
+
+
+<div
+    id="result"
+    class="card"
+    style="display:none"
+></div>
+
+
+<div class="card">
+
+    <h2>Shortlisted Candidates</h2>
+
+    <div id="candidates">
+        Loading...
+    </div>
+
+</div>
+
+
+<script>
+
+const form =
+    document.getElementById("form");
+
+const resumeInput =
+    document.getElementById("resume");
+
+const jdInput =
+    document.getElementById("jd");
+
+const screenButton =
+    document.getElementById("screenButton");
+
+const resultBox =
+    document.getElementById("result");
+
+const candidatesBox =
+    document.getElementById("candidates");
+
+
+function escapeHtml(value) {
+
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+
+}
+
+
+async function getJsonResponse(response) {
+
+    const text = await response.text();
+
+    let data;
+
+    try {
+
+        data = text
+            ? JSON.parse(text)
+            : {};
+
+    } catch {
+
+        throw new Error(
+            text ||
+            `Invalid server response. Status: ${response.status}`
+        );
+
+    }
+
+    if (!response.ok) {
+
+        throw new Error(
+            data.detail ||
+            data.error ||
+            `Request failed. Status: ${response.status}`
+        );
+
+    }
+
+    if (data.error) {
+        throw new Error(data.error);
+    }
+
+    return data;
+
+}
+
+
+form.addEventListener(
+    "submit",
+    async function(event) {
+
+        event.preventDefault();
+
+        if (
+            !resumeInput.files ||
+            resumeInput.files.length === 0
+        ) {
+
+            alert("Please select a resume file.");
+
+            return;
+
+        }
+
+        if (!jdInput.value.trim()) {
+
+            alert(
+                "Please enter a job description."
+            );
+
+            return;
+
+        }
+
+
+        const formData =
+            new FormData();
+
+        formData.append(
+            "resume",
+            resumeInput.files[0]
+        );
+
+        formData.append(
+            "job_description",
+            jdInput.value.trim()
+        );
+
+
+        screenButton.disabled = true;
+
+        screenButton.textContent =
+            "Screening...";
+
+
+        try {
+
+            const response =
+                await fetch(
+                    "/api/screen",
+                    {
+                        method: "POST",
+                        body: formData
+                    }
+                );
+
+
+            const result =
+                await getJsonResponse(response);
+
+
+            const matchedSkills =
+                Array.isArray(
+                    result.matched_skills
+                )
+                    ? result.matched_skills
+                    : [];
+
+
+            const missingSkills =
+                Array.isArray(
+                    result.missing_skills
+                )
+                    ? result.missing_skills
+                    : [];
+
+
+            resultBox.style.display =
+                "block";
+
+
+            resultBox.innerHTML = `
+
+                <h2>Screening Result</h2>
+
+                <p>
+                    <strong>Resume:</strong>
+                    ${escapeHtml(result.filename)}
+                </p>
+
+                <div class="score">
+                    ${Number(result.match_score || 0)}/100
+                </div>
+
+                <h3>
+                    ${escapeHtml(
+                        result.recommendation
+                    )}
+                </h3>
+
+                <p>
+                    ${escapeHtml(
+                        result.justification
+                    )}
+                </p>
+
+                <h3>Matched Skills</h3>
+
+                <div>
+                    ${
+                        matchedSkills.length
+                            ? matchedSkills.map(
+                                skill =>
+                                `<span class="pill">${escapeHtml(skill)}</span>`
+                            ).join("")
+                            : "<p>No matched skills found.</p>"
+                    }
+                </div>
+
+                <h3>Missing Skills</h3>
+
+                <div>
+                    ${
+                        missingSkills.length
+                            ? missingSkills.map(
+                                skill =>
+                                `<span class="pill">${escapeHtml(skill)}</span>`
+                            ).join("")
+                            : "<p>No missing skills found.</p>"
+                    }
+                </div>
+
+            `;
+
+
+            await loadCandidates();
+
+
+            resultBox.scrollIntoView({
+                behavior: "smooth"
+            });
+
+
+        } catch (error) {
+
+            console.error(error);
+
+
+            resultBox.style.display =
+                "block";
+
+
+            resultBox.innerHTML = `
+
+                <h2>Screening Error</h2>
+
+                <p class="error">
+                    ${escapeHtml(error.message)}
+                </p>
+
+            `;
+
+        } finally {
+
+            screenButton.disabled = false;
+
+            screenButton.textContent =
+                "Screen Resume";
+
+        }
+
+    }
+);
+
+
+async function loadCandidates() {
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/candidates"
+            );
+
+
+        const data =
+            await getJsonResponse(response);
+
+
+        const candidates =
+            Array.isArray(data.candidates)
+                ? data.candidates
+                : [];
+
+
+        if (candidates.length === 0) {
+
+            candidatesBox.innerHTML =
+                `<p class="empty">
+                    No candidates screened yet.
+                </p>`;
+
+            return;
+
+        }
+
+
+        candidatesBox.innerHTML = `
+
+            <table>
+
+                <thead>
+
+                    <tr>
+                        <th>Resume</th>
+                        <th>Score</th>
+                        <th>Decision</th>
+                        <th>Matched Skills</th>
+                    </tr>
+
+                </thead>
+
+                <tbody>
+
+                    ${candidates.map(
+                        candidate => `
+
+                        <tr>
+
+                            <td>
+                                ${escapeHtml(
+                                    candidate.filename
+                                )}
+                            </td>
+
+                            <td>
+                                ${Number(
+                                    candidate.match_score || 0
+                                )}/100
+                            </td>
+
+                            <td>
+                                ${escapeHtml(
+                                    candidate.recommendation
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHtml(
+                                    Array.isArray(
+                                        candidate.matched_skills
+                                    )
+                                        ? candidate.matched_skills.join(", ")
+                                        : ""
+                                )}
+                            </td>
+
+                        </tr>
+
+                    `
+                    ).join("")}
+
+                </tbody>
+
+            </table>
+
+        `;
+
+
+    } catch (error) {
+
+        console.error(error);
+
+        candidatesBox.innerHTML = `
+
+            <p class="error">
+                ${escapeHtml(error.message)}
+            </p>
+
+        `;
+
+    }
+
+}
+
+
+loadCandidates();
+
+</script>
+
+</body>
+
+</html>
